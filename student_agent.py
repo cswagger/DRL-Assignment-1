@@ -79,6 +79,8 @@
 # student_agent.py
 # Slightly smarter oscillating agent that avoids walls
 
+import random
+
 step = 0
 ACTIONS = [0, 1, 2, 3, 4, 5]  # [South, North, East, West, Pickup, Dropoff]
 
@@ -86,23 +88,25 @@ def get_action(obs):
     global step
     step += 1
 
+    # Extract obstacle info
     obstacle_north = obs[10]
     obstacle_south = obs[11]
+    obstacle_east  = obs[12]
+    obstacle_west  = obs[13]
 
-    # Even steps: try South if no obstacle, else East
-    if step % 2 == 0:
-        if obstacle_south == 0:
-            return 0  # Move South
-        elif obs[12] == 0:
-            return 2  # East
-        else:
-            return 3  # Otherwise West
+    # Build a list of safe movement directions
+    valid_moves = []
+    if obstacle_south == 0:
+        valid_moves.append(0)  # South
+    if obstacle_north == 0:
+        valid_moves.append(1)  # North
+    if obstacle_east == 0:
+        valid_moves.append(2)  # East
+    if obstacle_west == 0:
+        valid_moves.append(3)  # West
 
-    # Odd steps: try North if no obstacle, else East
+    if valid_moves:
+        return random.choice(valid_moves)
     else:
-        if obstacle_north == 0:
-            return 1  # Move North
-        elif obs[12] == 0:
-            return 2  # East
-        else:
-            return 3  # Otherwise West
+        # All directions blocked? Try pickup or dropoff anyway
+        return random.choice([4, 5])
