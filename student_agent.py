@@ -10,7 +10,7 @@ def encode_state(obs):
     destination_visible = obs[15]
     taxi_pos = (obs[0], obs[1])
     stations = [(obs[i], obs[i+1]) for i in range(2, 10, 2)]
-
+    a = 5
 
     at_station = taxi_pos in stations
     at_passenger = at_station and passenger_visible
