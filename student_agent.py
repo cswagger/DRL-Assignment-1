@@ -85,5 +85,3 @@ def get_action(obs):
     else:
         blocked_timer = 5
         return get_action(obs)  # try again with random walk logic next time
-
-
