@@ -1,20 +1,26 @@
-# student_agent.py
 import random
-from collections import deque
 
 step = 0
 has_passenger = False
-phase = 0  # 0: pickup, 1: dropoff
-current_target_idx = 0
-recent_positions = deque(maxlen=5)
-random_walk_steps = 0
+phase = 0  # 0: searching for passenger, 1: delivering
+target_idx = 0
+blocked_timer = 0  # countdown for random walk when blocked
 
-# Utility
-ACTIONS = [0, 1, 2, 3, 4, 5]  # [South, North, East, West, Pickup, Dropoff]
-DIRECTION_VECTORS = {0: (1, 0), 1: (-1, 0), 2: (0, 1), 3: (0, -1)}
+def is_on_station(pos, stations):
+    return pos in stations
+
+def is_isolated_station(pos, stations):
+    r, c = pos
+    for s in stations:
+        if s == pos:
+            continue
+        sr, sc = s
+        if abs(sr - r) + abs(sc - c) == 1:
+            return False
+    return True
 
 def get_action(obs):
-    global step, has_passenger, phase, current_target_idx, recent_positions, random_walk_steps
+    global step, has_passenger, phase, target_idx, blocked_timer
     step += 1
 
     taxi_r, taxi_c = obs[0], obs[1]
@@ -22,60 +28,62 @@ def get_action(obs):
     stations = [(obs[i], obs[i+1]) for i in range(2, 10, 2)]
     passenger_visible = obs[14]
     destination_visible = obs[15]
-    wall_flags = obs[10:14]  # north, south, east, west
 
-    # === Dropoff logic ===
-    if has_passenger and taxi_pos in stations and destination_visible:
-        has_passenger = False
-        phase = 0
-        return 5  # Dropoff
+    obstacle_north = obs[10]
+    obstacle_south = obs[11]
+    obstacle_east  = obs[12]
+    obstacle_west  = obs[13]
 
-    # === Pickup logic ===
-    if not has_passenger and taxi_pos in stations and passenger_visible:
+    # === Phase switch ===
+    if not has_passenger and passenger_visible and is_on_station(taxi_pos, stations) and is_isolated_station(taxi_pos, stations):
         has_passenger = True
         phase = 1
+        target_idx = 0
         return 4  # Pickup
 
-    # === Movement logic ===
-    target_station = stations[current_target_idx]
+    if has_passenger and destination_visible and is_on_station(taxi_pos, stations) and is_isolated_station(taxi_pos, stations):
+        has_passenger = False
+        phase = 0
+        target_idx = 0
+        return 5  # Dropoff
 
-    if taxi_pos == target_station:
-        # Move to next station
-        current_target_idx = (current_target_idx + 1) % 4
-        target_station = stations[current_target_idx]
-        random_walk_steps = 0  # reset walk counter
+    # === Set Target ===
+    target = stations[target_idx]
 
-    dx = target_station[0] - taxi_r
-    dy = target_station[1] - taxi_c
+    if taxi_pos == target:
+        target_idx = (target_idx + 1) % 4
+        target = stations[target_idx]
 
-    directions = []
-    if dx < 0 and not wall_flags[0]:  # north
-        directions.append(1)
-    if dx > 0 and not wall_flags[1]:  # south
-        directions.append(0)
-    if dy > 0 and not wall_flags[2]:  # east
-        directions.append(2)
-    if dy < 0 and not wall_flags[3]:  # west
-        directions.append(3)
+    # === Obstacle-aware movement toward target ===
+    dx = target[0] - taxi_r
+    dy = target[1] - taxi_c
 
-    # Try to go toward target
-    if directions:
-        action = random.choice(directions)
-        next_vec = DIRECTION_VECTORS[action]
-        next_pos = (taxi_r + next_vec[0], taxi_c + next_vec[1])
-        if next_pos not in recent_positions:
-            recent_positions.append(next_pos)
-            return action
+    move_candidates = []
 
-    # === Random walk (when stuck) ===
-    random_walk_steps += 1
-    valid_random_moves = [a for a in range(4) if not wall_flags[a ^ (1 if a % 2 == 0 else -1)]]
-    if valid_random_moves:
-        action = random.choice(valid_random_moves)
-        next_vec = DIRECTION_VECTORS[action]
-        next_pos = (taxi_r + next_vec[0], taxi_c + next_vec[1])
-        recent_positions.append(next_pos)
-        return action
+    if dx < 0 and obstacle_north == 0:
+        move_candidates.append(1)  # North
+    if dx > 0 and obstacle_south == 0:
+        move_candidates.append(0)  # South
+    if dy < 0 and obstacle_west == 0:
+        move_candidates.append(3)  # West
+    if dy > 0 and obstacle_east == 0:
+        move_candidates.append(2)  # East
 
-    # === Fallback ===
-    return random.choice([4, 5])  # attempt pickup/dropoff if fully stuck
+    if move_candidates:
+        blocked_timer = 0
+        return random.choice(move_candidates)
+
+    # === Temporarily blocked → random walk ===
+    if blocked_timer > 0:
+        blocked_timer -= 1
+        valid_moves = []
+        if obstacle_south == 0: valid_moves.append(0)
+        if obstacle_north == 0: valid_moves.append(1)
+        if obstacle_east  == 0: valid_moves.append(2)
+        if obstacle_west  == 0: valid_moves.append(3)
+        return random.choice(valid_moves) if valid_moves else random.choice([4, 5])
+    else:
+        blocked_timer = 5
+        return get_action(obs)  # try again with random walk logic next time
+
+
